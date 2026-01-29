@@ -40,22 +40,29 @@ class PassportCropDetectorAsync {
     double sideMarginFactor = 0.55,
   }) async {
     try {
+      debugPrint('🔍 Starting ML Kit face detection for: $imagePath');
+      
       // Get image dimensions (lightweight, can run on main thread).
       final bytes = await File(imagePath).readAsBytes();
       final decoded = img.decodeImage(bytes);
       if (decoded == null) {
+        debugPrint('❌ Failed to decode image');
         return null;
       }
 
       final width = decoded.width.toDouble();
       final height = decoded.height.toDouble();
+      debugPrint('📐 Image dimensions: ${width}x$height');
 
       // Run ML Kit face detection (must be on main thread).
       final faces = await _getDetector.processImage(
         InputImage.fromFilePath(imagePath),
       );
       
+      debugPrint('👤 Detected ${faces.length} face(s)');
+      
       if (faces.isEmpty) {
+        debugPrint('⚠️ No faces detected - returning null crop');
         return null;
       }
 
@@ -67,6 +74,7 @@ class PassportCropDetectorAsync {
       );
       final face = faces.first;
       final box = face.boundingBox;
+      debugPrint('📦 Face bounding box: $box');
 
       // Expand face box into a "passport" crop box.
       final left = box.left - box.width * sideMarginFactor;
@@ -75,12 +83,15 @@ class PassportCropDetectorAsync {
       final bottom = box.bottom + box.height * chinBottomMarginFactor;
 
       var crop = Rect.fromLTRB(left, top, right, bottom);
+      debugPrint('📏 Initial expanded crop: $crop');
 
       // Enforce aspect ratio by expanding the smaller dimension.
       crop = _expandToAspect(crop, targetAspectRatio);
+      debugPrint('📐 After aspect ratio adjustment: $crop');
 
       // Clamp to image.
       crop = _clampToBounds(crop, width: width, height: height);
+      debugPrint('🔒 After clamping to bounds: $crop');
 
       // If clamping broke aspect too much, do a final adjust inside bounds.
       crop = _fitAspectInsideBounds(
@@ -89,10 +100,11 @@ class PassportCropDetectorAsync {
         height: height,
         aspect: targetAspectRatio,
       );
+      debugPrint('✅ Final passport crop rect: $crop');
 
       return crop;
     } catch (e) {
-      debugPrint('ML Kit face detection error: $e');
+      debugPrint('❌ ML Kit face detection error: $e');
       return null;
     }
   }

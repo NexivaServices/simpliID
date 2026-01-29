@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../models/models.dart';
 import '../providers/capture_providers.dart';
-import 'order_students_page.dart';
 
 class OrdersPage extends ConsumerWidget {
   const OrdersPage({super.key, required this.session});
@@ -43,11 +43,7 @@ class OrdersPage extends ConsumerWidget {
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => OrderStudentsPage(orderId: orderId),
-                  ),
-                );
+                context.push('/order/$orderId');
               },
             ),
         ],

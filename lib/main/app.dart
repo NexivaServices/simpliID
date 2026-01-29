@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:upgrader/upgrader.dart';
 
-import '../features/capture/ui/capture_root.dart';
+import '../core/routing/app_router.dart';
+import '../core/theme/app_theme.dart';
 
 class App extends HookConsumerWidget {
   const App({super.key, this.enableUpgradeAlert = true});
@@ -11,10 +12,14 @@ class App extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final app = MaterialApp(
+    final router = ref.watch(goRouterProvider);
+    
+    final app = MaterialApp.router(
       title: 'simpliid',
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo)),
-      home: const CaptureRoot(),
+      theme: AppTheme.darkTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.dark,
+      routerConfig: router,
     );
 
     if (!enableUpgradeAlert) {

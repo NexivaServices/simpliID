@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -5,7 +7,8 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/image/passport_crop_detector_isolate.dart';
-import 'capture_photo_preview_page.dart';
+import '../providers/capture_providers.dart';
+import 'capture_photo_preview_page.dart' show EditorPage;
 
 class CapturePhotoResult {
   const CapturePhotoResult({
@@ -88,8 +91,8 @@ class CapturePhotoFlowPage extends HookConsumerWidget {
       }
     }
 
-    return WillPopScope(
-      onWillPop: () async {
+    return PopScope(
+      onPopInvokedWithResult: (didPop, result) => () async {
         if (showFilters.value) {
           showFilters.value = false;
           return false;
@@ -136,21 +139,33 @@ class CapturePhotoFlowPage extends HookConsumerWidget {
               imagePath: path,
             );
 
+            debugPrint('ML Kit face detection result: ${crop != null ? 'Face detected, crop: $crop' : 'No face detected'}');
+
+            // Show warning if no face detected
+            if (crop == null && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('⚠️ No face detected in photo. Please ensure the student is centered and visible.'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 3),
+                ),
+              );
+            }
+
             if (!context.mounted) {
               capturing.value = false;
               return;
             }
 
-            // Navigate to preview
-            final result = await Navigator.of(context).push<CapturePhotoResult>(
+            // Navigate directly to editor for review
+            final editorResult = await Navigator.of(context).push<Map<String, dynamic>>(
               MaterialPageRoute(
-                builder: (_) => CapturePhotoPreviewPage(
+                builder: (_) => EditorPage(
+                  filePath: path,
                   studentName: studentName,
                   orderId: orderId,
                   studentId: studentId,
-                  sourceImagePath: path,
                   suggestedCrop: crop,
-                  backgroundColor: selectedBgColor.value,
                 ),
               ),
             );
@@ -160,9 +175,77 @@ class CapturePhotoFlowPage extends HookConsumerWidget {
               return;
             }
 
-            if (result != null) {
-              Navigator.of(context).pop(result);
+            // Check if user wants to retake
+            if (editorResult?['retake'] == true) {
+              capturing.value = false;
+              return; // Stay on camera screen
             }
+
+            // If editor returned bytes, process and save the photo
+            if (editorResult?['bytes'] != null) {
+              final editedBytes = editorResult!['bytes'] as Uint8List;
+              
+              try {
+                // Process and save the edited photo
+                final photoStorage = ref.read(photoStorageProvider);
+                final photos = await photoStorage.writePassportPhotosFromFileBackground(
+                  orderId: orderId,
+                  studentId: studentId,
+                  sourceImagePath: path,
+                  crop: crop,
+                );
+
+                // Overwrite with edited version
+                await photoStorage.overwritePhotosFromEditedBytesBackground(
+                  highResPath: photos.highResPath,
+                  thumbnailPath: photos.thumbnailPath,
+                  editedBytes: editedBytes,
+                );
+
+                // Schedule compression and encryption
+                await photoStorage.scheduleCompressAndEncrypt(
+                  orderId: orderId,
+                  studentId: studentId,
+                  inputJpgPath: photos.highResPath,
+                  maxLongSide: 1200,
+                  jpegQuality: 85,
+                );
+
+                await photoStorage.scheduleCompressAndEncrypt(
+                  orderId: orderId,
+                  studentId: '\${studentId}_compressed',
+                  inputJpgPath: photos.highResPath,
+                  maxLongSide: 800,
+                  jpegQuality: 75,
+                );
+
+                if (!context.mounted) {
+                  capturing.value = false;
+                  return;
+                }
+
+                // Return success result
+                Navigator.of(context).pop(
+                  CapturePhotoResult(
+                    highResPath: photos.highResPath,
+                    thumbnailPath: photos.thumbnailPath,
+                    crop: crop,
+                    absent: false,
+                  ),
+                );
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to save photo: \$e'),
+                      backgroundColor: Colors.red.shade700,
+                    ),
+                  );
+                }
+              }
+            }
+
+            capturing.value = false;
           } catch (e) {
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -180,46 +263,7 @@ class CapturePhotoFlowPage extends HookConsumerWidget {
           child: CircularProgressIndicator.adaptive(),
         ),
         topActionsBuilder: (state) {
-          return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  // Background color selector
-                  GestureDetector(
-                    onTap: () => showBgColorPicker.value = !showBgColorPicker.value,
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: selectedBgColor.value,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 3,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.palette,
-                        color: selectedBgColor.value.computeLuminance() > 0.5
-                            ? Colors.black
-                            : Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
+          return const SizedBox.shrink();
         },
         middleContentBuilder: (state) {
           return const SizedBox.shrink();
